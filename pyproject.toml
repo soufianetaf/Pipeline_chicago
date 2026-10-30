@@ -1,0 +1,19 @@
+[project]
+name = "taxi-pipeline"
+version = "0.1.0"
+description = "Pipeline médaillon Airflow + PySpark + Delta Lake sur les trajets de taxi de Chicago"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+# Le dossier tests est monté en lecture seule dans le conteneur.
+addopts = "-p no:cacheprovider -q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+src = ["src", "dags", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
