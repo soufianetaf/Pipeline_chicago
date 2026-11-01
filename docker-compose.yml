@@ -1,0 +1,171 @@
+# Stack locale complète : `docker compose up -d --build`
+#
+#   Airflow (webserver + scheduler, LocalExecutor, Spark en mode local)
+#   MinIO    : stockage objet S3, socle du datalake (bronze / silver / gold)
+#   Postgres : métadonnées Airflow + entrepôt SQL d'exposition + base Metabase
+#   Metabase : dashboards BI branchés sur l'entrepôt
+#
+# Toutes les variables ont une valeur par défaut : un fichier .env est optionnel
+# (voir .env.example pour les surcharger).
+
+x-airflow-common: &airflow-common
+  build: ./docker/airflow
+  image: chicago-taxi-airflow:local
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres:5432/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    # Le DAG démarre seul au premier lancement : `docker compose up` suffit.
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY:-}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY:-local-dev-secret}
+    AIRFLOW__SCHEDULER__DAG_DIR_LIST_INTERVAL: "30"
+    # Connexions déclarées par variables d'environnement (rien à cliquer dans l'UI).
+    AIRFLOW_CONN_SPARK_LOCAL: '{"conn_type": "spark", "host": "local[*]"}'
+    AIRFLOW_CONN_WAREHOUSE: postgresql://${WAREHOUSE_USER:-analytics}:${WAREHOUSE_PASSWORD:-analytics}@postgres:5432/warehouse
+    # Code du pipeline, importé par le DAG et par les jobs spark-submit
+    PYTHONPATH: /opt/airflow/src
+    PYTHONDONTWRITEBYTECODE: "1"
+    # Configuration du pipeline (lue par taxi_pipeline.config.Settings)
+    S3_ENDPOINT: http://minio:9000
+    S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+    S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    DATALAKE_BUCKET: ${DATALAKE_BUCKET:-datalake}
+    SODA_APP_TOKEN: ${SODA_APP_TOKEN:-}
+    SODA_MAX_WORKERS: ${SODA_MAX_WORKERS:-4}
+    WAREHOUSE_JDBC_URL: jdbc:postgresql://postgres:5432/warehouse
+    WAREHOUSE_USER: ${WAREHOUSE_USER:-analytics}
+    WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-analytics}
+    MAX_REJECTED_RATIO: ${MAX_REJECTED_RATIO:-0.05}
+    PIPELINE_START_DATE: ${PIPELINE_START_DATE:-2023-01-01}
+    PIPELINE_END_DATE: ${PIPELINE_END_DATE:-2023-03-31}
+    SPARK_DRIVER_MEMORY: ${SPARK_DRIVER_MEMORY:-2g}
+  volumes:
+    - ./dags:/opt/airflow/dags:ro
+    - ./src:/opt/airflow/src:ro
+    - ./sql:/opt/airflow/sql:ro
+    - ./data:/opt/airflow/data:ro
+    - ./tests:/opt/airflow/tests:ro
+    - ./pyproject.toml:/opt/airflow/pyproject.toml:ro
+    - airflow-logs:/opt/airflow/logs
+  depends_on: &airflow-depends-on
+    postgres:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16.6
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: airflow
+      WAREHOUSE_USER: ${WAREHOUSE_USER:-analytics}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-analytics}
+      METABASE_DB_USER: ${METABASE_DB_USER:-metabase}
+      METABASE_DB_PASSWORD: ${METABASE_DB_PASSWORD:-metabase}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-airflow} -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  minio:
+    # MinIO ne publie plus d'images sur Docker Hub ni quay.io : on utilise la
+    # construction Bitnami archivée, épinglée sur une version précise.
+    image: bitnamilegacy/minio:2025.4.22
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      MINIO_DEFAULT_BUCKETS: ${DATALAKE_BUCKET:-datalake}
+    volumes:
+      - minio-data:/bitnami/minio/data
+    ports:
+      - "9000:9000"   # API S3
+      - "9001:9001"   # console web
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow-common
+    # Migration de la base, compte admin et pool Spark ; s'arrête ensuite.
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        set -e
+        airflow db migrate
+        airflow users create --role Admin --username "$${AIRFLOW_ADMIN_USER}" --password "$${AIRFLOW_ADMIN_PASSWORD}" \
+          --firstname Admin --lastname Local --email admin@example.com || true
+        airflow pools set spark 1 "Une seule session Spark a la fois"
+    environment:
+      <<: *airflow-env
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-airflow}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-airflow}
+    restart: "no"
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    depends_on:
+      <<: *airflow-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    environment:
+      <<: *airflow-env
+      AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    depends_on:
+      <<: *airflow-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  metabase:
+    image: metabase/metabase:v0.51.9
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: ${METABASE_DB_USER:-metabase}
+      MB_DB_PASS: ${METABASE_DB_PASSWORD:-metabase}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  minio-data:
+  airflow-logs:

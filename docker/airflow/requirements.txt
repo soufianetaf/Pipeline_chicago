@@ -1,0 +1,9 @@
+# Traitement
+pyspark==3.5.3
+delta-spark==3.2.1
+
+# Orchestration (boto3, requests et le provider Postgres sont déjà dans l'image Airflow)
+apache-airflow-providers-apache-spark==4.11.3
+
+# Tests (lancés dans le conteneur, qui a déjà Java et les JAR)
+pytest==8.3.4
