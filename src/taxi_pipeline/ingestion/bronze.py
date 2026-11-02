@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from taxi_pipeline.config import BRONZE, BRONZE_COMMUNITY_AREAS, BRONZE_TRIPS, Settings
@@ -55,7 +55,7 @@ def ingest_day(day: date, client: SodaClient, store: ObjectStore, settings: Sett
             "trip_start_date": day.isoformat(),
             "rows": rows,
             "pages": pages,
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
+            "ingested_at": datetime.now(UTC).isoformat(),
         },
     )
     log.info("Bronze %s : %d lignes en %d page(s)", day, rows, pages)

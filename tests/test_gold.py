@@ -21,7 +21,9 @@ def trips(make_raw):
 
 @pytest.fixture
 def community_areas(spark):
-    return spark.createDataFrame([("8", "Near North Side"), ("32", "Loop")], "community_area string, community_name string")
+    return spark.createDataFrame(
+        [("8", "Near North Side"), ("32", "Loop")], "community_area string, community_name string"
+    )
 
 
 def test_daily_kpis(trips):

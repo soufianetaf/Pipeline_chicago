@@ -62,7 +62,9 @@ def run_silver_checks(
 
     return [
         CheckResult("row_count_positive", ERROR, rows > 0, rows, "> 0"),
-        CheckResult("trip_id_unique", ERROR, stats["distinct_ids"] == rows, rows - stats["distinct_ids"], "0 doublon"),
+        CheckResult(
+            "trip_id_unique", ERROR, stats["distinct_ids"] == rows, rows - stats["distinct_ids"], "0 doublon"
+        ),
         CheckResult("key_columns_not_null", ERROR, stats["null_keys"] == 0, stats["null_keys"], "0"),
         CheckResult(
             "rejected_ratio",
@@ -74,7 +76,9 @@ def run_silver_checks(
         CheckResult(
             "trip_total_gte_fare", WARNING, below_fare_ratio <= 0.001, round(below_fare_ratio, 4), "<= 0.001"
         ),
-        CheckResult("days_complete", WARNING, stats["days"] == expected_days, stats["days"], f"{expected_days}"),
+        CheckResult(
+            "days_complete", WARNING, stats["days"] == expected_days, stats["days"], f"{expected_days}"
+        ),
     ]
 
 

@@ -32,7 +32,10 @@ def main(argv: list[str] | None = None) -> None:
 
         results = run_silver_checks(trips, rejected, window.start, window.end, settings.max_rejected_ratio)
         for r in results:
-            log.info("[%s] %-22s %s observé=%s attendu=%s", r.severity, r.check, "OK" if r.passed else "KO", r.observed, r.expected)
+            status = "OK" if r.passed else "KO"
+            log.info(
+                "[%s] %-22s %s observé=%s attendu=%s", r.severity, r.check, status, r.observed, r.expected
+            )
 
         (
             spark.createDataFrame([{**asdict(r), "observed": float(r.observed)} for r in results])
