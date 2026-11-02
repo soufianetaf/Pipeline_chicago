@@ -2,8 +2,8 @@
 ### Pipeline médaillon — Chicago Taxi Trips
 
 Un run par mois (`@monthly`, `catchup=True`) : chaque run traite **son**
-`data_interval` et uniquement lui. Toutes les tâches sont idempotentes, donc
-relancer un mois (ou faire un backfill) donne toujours le même résultat.
+`data_interval` et uniquement lui. Relancer un mois (ou faire un backfill) redonne
+les mêmes données ; seul le journal qualité grandit, car c'est un historique.
 
 ```
 ingest_reference ┐

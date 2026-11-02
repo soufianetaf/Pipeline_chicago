@@ -210,7 +210,7 @@ On garantit `lignes bronze = lignes silver + lignes rejetées` : aucune ligne n'
 |---|---|---|
 | `daily_kpis` | jour | nb trajets, taxis actifs, **revenus** (total, tarifs, pourboires), panier moyen, **durée moyenne et médiane**, distance moyenne, taux de pourboire |
 | `pickup_zones` | zone de prise en charge | nb trajets, part, revenus, panier et durée moyens, **rang** ; jointure avec le référentiel des noms de zones (broadcast join) |
-| `hourly_demand` | jour de semaine × heure | volume total et **moyen par jour**, panier et durée moyens (base d'une heatmap) |
+| `hourly_demand` | jour de semaine × heure | volume total et **moyen par jour**, panier et durée moyens (base d'un tableau croisé jour × heure) |
 | `payment_breakdown` | moyen de paiement | nb trajets, part, revenus, taux de pourboire |
 
 Le gold est entièrement recalculé à chaque run : les parts et les rangs dépendent de l'ensemble des données,
@@ -232,7 +232,9 @@ Bonnes pratiques Airflow appliquées :
 - **Un run = une fenêtre de données** (`@monthly`, `data_interval_start` → `data_interval_end`) :
   chaque tâche reçoit `--start` / `--end` et ne traite que sa fenêtre. **Backfill** et relance d'un mois
   passé se font avec les commandes standard d'Airflow.
-- **Idempotence** de toutes les tâches : relancer donne le même résultat, sans doublons.
+- **Idempotence** : relancer un mois redonne les mêmes données en bronze, silver, gold et Postgres (vérifié
+  en relançant février). Seul le journal qualité grandit, car c'est un historique ; la vue
+  `v_latest_quality_checks` n'en garde que le dernier état.
 - **Retries** avec backoff exponentiel, `execution_timeout` sur l'ingestion.
 - `max_active_runs=1` et un **pool `spark` à 1 slot** : une seule session Spark à la fois, pour maîtriser la RAM.
 - **Airflow orchestre, il ne calcule pas** : les traitements lourds sont des scripts `spark-submit`
@@ -281,7 +283,7 @@ dépendent sont conservées. Puis `create_views` (re)crée des vues prêtes à l
 2. *Ajouter une base de données* → PostgreSQL : hôte `postgres`, port `5432`, base `warehouse`,
    utilisateur `analytics`, mot de passe `analytics`.
 3. Les tables du schéma `analytics` sont alors explorables. Idées de graphiques : revenus par jour
-   (`daily_kpis`), heatmap jour × heure (`hourly_demand`), top zones (`v_top10_pickup_zones`).
+   (`daily_kpis`), tableau croisé jour × heure (`hourly_demand`), top zones (`v_top10_pickup_zones`).
 
 Postgres est aussi accessible depuis n'importe quel client SQL (DBeaver, Power BI, Excel…) sur `localhost:5432`.
 
